@@ -16,9 +16,6 @@ Few Shot Learning Bechmark
 
 
 
-Python Boilerplate contains all the boilerplate you need to create a Python package.
-
-
 * Free software: MIT license
 * Documentation: https://few-shot-learning-bechmark.readthedocs.io.
 

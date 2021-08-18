@@ -2,7 +2,7 @@ from collections import UserDict
 import functools
 import operator
 
-# An implementation of nested dictionary. Unfortuanately this is too slow to be useful on large scale data, e.g. the Omniglot image database.
+# An implementation of nested dictionary. Unfortuanately this is too slow to be used on large scale data, e.g. the Omniglot image database.
 # Use the functions in `nested_dict.py` instead.
 
 class NestedDict(UserDict):

@@ -1,3 +1,6 @@
+"""Functions for manipulation of the nested dictionaries.
+"""
+
 import os
 import functools
 import operator
@@ -36,7 +39,9 @@ def random_split(a:list, s:int):
 def nested_dict(k, v):
     """Create a nested dictionary by keys.
 
-    Example: `k=['a','b','c']`, v=0` results in `{'a':{'b':{'c':0}}}`.
+    Example
+    -------
+    `nested_dict(['a','b','c'], 0)` returns `{'a':{'b':{'c':0}}}`.
     """
     if type(k) in {list, tuple}:
         d = {k[-1]: v}
@@ -50,7 +55,10 @@ def nested_dict(k, v):
 def getitem(d:dict, k:list):
     """Get an item by keys in a nested dictionary.
 
-    Example: for `d={'a':{'b':{'c':0}}}`, `k=['a','b','c']` returns 0 and `k=['a','b']` returns `{'c':0}`.
+    Example
+    -------
+    For the nested dictionary `{'a':{'b':{'c':0}}}`, query with the key `['a','b','c']` returns 0;
+    and query with the key `['a','b']` returns `{'c':0}`.
     """
     # retrieve from a nested dictionary
     # possible to use dict.get() or operator.getitem()
@@ -60,7 +68,7 @@ def getitem(d:dict, k:list):
 def setitem(d:dict, k, v):
     """Set an item by keys in a nested dictionary.
 
-    Example: for `d={'a':{'b':{'c':0}}}`, `k=['a','b','c']` and `v=1` set the dictionary to `d={'a':{'b':{'c':1}}}`.
+    Example: for the nested dictionary `d={'a':{'b':{'c':0}}}`, `k=['a','b','c']` and `v=1` set the dictionary to `d={'a':{'b':{'c':1}}}`.
     """
     assert type(d) is dict
 
@@ -78,18 +86,15 @@ def setitem(d:dict, k, v):
 #     p = functools.reduce(dict.__getitem__, k[:-1], d)
 #     p[k[-1]] = v
 
-def get_paths(d:dict, lvl:int=None) -> list:
-    """Get all acessing paths (chains of keys) of a nested dictionary.
 
-    Example: for `d={'a':{'b':{'c':0, 'd':1}}}`, `lvl=None` returns `[['a','b','c'], ['a','b','d']]`; while `lvl=0` returns `['a']`.
-    """
+def _get_paths_pos(d:dict, lvl:int=None) -> list:
     L = []
     if (lvl is None) or (type(lvl) is int and lvl >= 0):
         for k,v in d.items():
             # print(lvl,k,v)
             # assert type(k) is str  # not necessary
             if type(v) is dict:  # empty dictionary must be handled
-                foo = get_paths(v, None if lvl is None else lvl-1)
+                foo = _get_paths_pos(v, None if lvl is None else lvl-1)
                 if foo:
                     # L += [k+sep+t for t in foo]  # if a separator is used, working only for string keys
                     poo = []
@@ -107,27 +112,58 @@ def get_paths(d:dict, lvl:int=None) -> list:
     return L
 
 
-def sub_dict(d:dict, paths:list):
+def _get_paths_neg(d:dict, lvl:int):
+    assert lvl < 0
+    foo = [f[:lvl] for f in _get_paths_pos(d, None)]
+    paths = []
+    for f in foo:
+        if f not in paths:
+            paths.append(f)
+    return paths
+
+
+def get_paths(d:dict, lvl:int=None):
+    """Get all acessing paths (chains of keys) of a nested dictionary.
+
+    Example: for `d={'a':{'b':{'c':0, 'd':1}}}`, `lvl=None` returns `[['a','b','c'], ['a','b','d']]`; while `lvl=0` returns `[['a']]`, and `lvl=-1` returns `[['a','b']]`.
+    """
+    if lvl is None:
+        return _get_paths_pos(d, lvl)
+    else:
+        if lvl>=0:
+            return _get_paths_pos(d, lvl)
+        else:
+            return _get_paths_neg(d, lvl)
+        # raise ValueError('Level must be an integer or None.')
+
+
+def sub_dict(d:dict, paths:list, *, compl=False):
     """Get a sub dictionary from a set of paths.
 
-    Example: for `d={'a':{'b':{'c':0, 'd':1}}, 'e':{'f':2, 'g':3}}`, `path=[['a'],['e','f']]` returns `{'a':{'b':{'c':0, 'd':1}}, 'e':{'f':2}}`.
+    If `compl` is True then take the complementary of the given paths.
+
+    Example: for `d={'a':{'b':{'c':0, 'd':1}}, 'e':{'f':2, 'g':3}}`, `path=[['a'],['e','f']]` returns `{'a':{'b':{'c':0, 'd':1}}, 'e':{'f':2}}`. When `compl=True` then `path=[['a']]` returns `{'e':{'f':2, 'g':3}}`.
     """
 #     k = keys[0]
 #     assert type(k) in {list, tuple}
 #     res = nested_dict(k, fsl.utils.data.get_item(d, k))
     res = {}
-    for k in paths:
+    if compl:
+        pp = []
+        for p in get_paths(d):
+            for q in paths:
+                if q == p[:len(q)]:
+                    break
+            else:
+                pp.append(p)
+    else:
+        pp = paths
+
+    for k in pp:
         # assert type(k) in {list, tuple}
         setitem(res, k, getitem(d, k))
     return res
 
-def random_split_level_local(d:dict, ratio:float, lvl:int=None, *, index:int=None):
-    d1, d2 = {}, {}
-    for p in get_paths(d, lvl):
-        s1, s2 = random_split_level(getitem(d, p[:-1]), ratio, 0, index=index)
-        setitem(d1, p[:-1], s1)
-        setitem(d2, p[:-1], s2)
-    return d1, d2
 
 def random_split_level(d:dict, ratio:float, lvl:int=None, *, index:int=None):
     """Randomly split a nested dictionary at a given level.
@@ -141,14 +177,23 @@ def random_split_level(d:dict, ratio:float, lvl:int=None, *, index:int=None):
     return sub_dict(d, p1), sub_dict(d, p2)
 
 
-def sample_local(d:dict, n:int, lvl:int=None, *, replace=False):
-    """Generate random samples from a nested dictionary at a given level.
+def random_split_level_local(d:dict, ratio:float, lvl:int=None, *, index:int=None):
+    """Locally split a nested dictionary at a given level.
     """
-    res = {}
-    for p in get_paths(d, lvl):
-        s = sample(getitem(d, p[:-1]), n, 0, replace=replace)
-        setitem(res, p[:-1], s)
-    return res
+    # assert lvl > 0
+
+    d1, d2 = {}, {}
+    if lvl is None:
+        paths = _get_paths_neg(d, -1)
+    else:
+        paths = get_paths(d, lvl-1)
+
+    for p in paths:
+        s1, s2 = random_split_level(getitem(d, p), ratio, 0, index=index)
+        setitem(d1, p, s1)
+        setitem(d2, p, s2)
+    return d1, d2
+
 
 def sample(d:dict, n:int, lvl:int=None, *, replace=False):
     """Generate random samples from a nested dictionary at a given level.
@@ -165,8 +210,28 @@ def sample(d:dict, n:int, lvl:int=None, *, replace=False):
         return sub_dict(d, _paths[:n])
 
 
+def sample_local(d:dict, n:int, lvl:int=None, *, replace=False):
+    """Locally generate random samples from a nested dictionary at a given level.
+    """
+    res = {}
+    if lvl is None:
+        paths = _get_paths_neg(d, -1)
+    else:
+        paths = get_paths(d, lvl-1)
+
+    for p in paths:
+        s = sample(getitem(d, p), n, 0, replace=replace)
+        setitem(res, p, s)
+    # for p in get_paths(d, lvl):
+    #     s = sample(getitem(d, p[:-1]), n, 0, replace=replace)
+    #     setitem(res, p[:-1], s)
+    return res
+
+
 # Sampling of the support and query set
 def support_query_sampling(task:dict, ns:int, nq:int=None, lvl:int=None, *, split=False):
+    """
+    """
     if split:
         sd, qd = random_split_level_local(task, 0, lvl, index=ns)
         if nq:
@@ -203,7 +268,7 @@ def from_folder(rootdir:str, func:Callable=None, filt:Callable=None) -> dict:
     if filt is None:
         filt = lambda x: True
 
-    for path, dirs, files in os.walk(rootdir):
+    for path, _, files in os.walk(rootdir):
         folders = path[start:].split(os.sep)
 
         subdir = {f: func(os.path.join(path, f)) if func else None for f in files if filt(f)}
@@ -258,3 +323,5 @@ def count_leafnodes(d:dict) -> int:
                 m += count_leafnodes(v)
         return n + max(m,1)
     return n
+
+
