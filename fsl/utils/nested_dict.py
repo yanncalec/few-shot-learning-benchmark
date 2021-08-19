@@ -194,11 +194,42 @@ def random_split_level_local(d:dict, ratio:float, lvl:int=None, *, index:int=Non
         setitem(d2, p, s2)
     return d1, d2
 
+def intersect(paths1:list, paths2:list):
+    """Return all elements of `paths1` that have a root in `paths2`.
+    """
+    foo = []
+    for p1 in paths1:
+        for p2 in paths2:
+            if p1[:len(p2)] == p2:
+                foo.append(p1)
+    return foo
 
-def sample(d:dict, n:int, lvl:int=None, *, replace=False):
+
+def common_roots(paths1:list, paths2:list):
+    """Common roots of two paths.
+    """
+    foo = []
+    for p1 in paths1:
+        for p2 in paths2:
+            if p1[:len(p2)] == p2:
+                foo.append(p2)
+            elif p2[:len(p1)] == p1:
+                foo.append(p1)
+#     return list(set(foo))  # <- not hashable
+    goo = []  # remove redundant elements
+    for x in foo:
+        if not x in goo:
+            goo.append(x)
+    return goo
+
+
+def sample(d:dict, n:int, lvl:int=None, paths:list=None, *, replace=False):
     """Generate random samples from a nested dictionary at a given level.
     """
     _paths = get_paths(d, lvl)
+    if paths:
+        _paths = intersect(_paths, paths)
+
     if replace:
         p = random.choices(_paths, k=n)  # with replacement
         # assert len(p) == n
@@ -325,3 +356,38 @@ def count_leafnodes(d:dict) -> int:
     return n
 
 
+def leaves_to_array(d:dict, lvl:int=None):
+    def _leaves_to_array(d:dict):
+        res = [getitem(d, p) for p in get_paths(d)]
+        return np.asarray(res)
+
+    if lvl is None:
+        return _leaves_to_array(d)
+    else:
+        paths = get_paths(d, lvl)
+        res = []
+        for p in paths:
+            foo = getitem(d, p)
+            if type(foo) is dict:
+                res.append(_leaves_to_array(foo))
+            else:
+                res.append(foo)
+        return np.asarray(res)
+        # return np.concatenate(res)
+
+
+def element_to_index(a:list):
+    try:
+        b = list(set(a))  # only works for hashable elements
+    except:
+        b = []
+        for u in a:
+            if u not in b:
+                b.append(u)
+    d = []
+    for l in a:
+        for n,p in enumerate(b):
+            if p==l:
+                break
+        d.append(n)
+    return d

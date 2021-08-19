@@ -10,13 +10,13 @@ with open('README.rst') as readme_file:
 with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
-requirements = ['torch', 'tensorflow', 'numpy', 'torchvision', 'PIL']
+requirements = ['torch', 'tensorflow', 'numpy', 'pillow']
 
 test_requirements = [ ]
 
 setup(
-    author="Han Wang",
-    author_email='han.wang@cea.fr',
+    author="Yann Calec",
+    author_email='yann.calec@yandex.com',
     python_requires='>=3.6',
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
@@ -28,7 +28,7 @@ setup(
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
     ],
-    description="Python Boilerplate contains all the boilerplate you need to create a Python package.",
+    description="Collection of algorithms for Few Shot Learning.",
     entry_points={
         'console_scripts': [
             'few_shot_learning_bechmark=few_shot_learning_bechmark.cli:main',

@@ -1,8 +1,11 @@
-"""Prototypical Networks
+"""Prototypical Networks, Pytorch implementation.
 
 Reference:
 - Prototypical networks for few-shot learning, Snell et al 2017
+
+https://github.com/jakesnell/prototypical-networks
 """
+
 # from typing import
 import functools
 import operator
@@ -12,21 +15,15 @@ import torch                                        # root package
 # from torch.utils.data import Dataset, DataLoader    # dataset representation and loading
 
 import torch.nn as nn                     # neural networks
-
 # import torch.autograd as autograd         # computation graph
-# from torch import Tensor                  # tensor node in the computation graph
+from torch import Tensor                  # tensor node in the computation graph
 import torch.nn.functional as F           # layers, activations and more
 # import torch.optim as optim               # optimizers e.g. gradient descent, ADAM, etc.
-# # from torch.jit import script, trace       # hybrid frontend decorator and tracing jit
 
-# import torchvision
-# from torchvision import datasets, models, transforms     # vision datasets,
-#                                                          # architectures &
-#                                                          # transforms
-
-# print(torchvision.__version__)
 
 def euclidean_dist(x, y):
+    """Squared euclidean distance between tensors.
+    """
     assert x.ndim == y.ndim ==2 and x.shape[1] == y.shape[1]
     # # original implementation:
     # # x: N x D
@@ -41,6 +38,8 @@ def euclidean_dist(x, y):
 
 
 class ProtoNet(nn.Module):
+    """Prototypical Networks.
+    """
     _default_parameters = {
         'conv': {'kernel_size': 3, 'padding':'same'},
         'pool': {'kernel_size': 2},
@@ -62,7 +61,12 @@ class ProtoNet(nn.Module):
             nn.MaxPool2d(**cls._default_parameters['pool'])
         )
 
-    def __init__(self, in_dim:tuple):
+    def __init__(self, in_dim:tuple, *, use_cuda=False):
+        """
+        Args
+        ----
+        in_dim: dimension of the input images (channel, height, width).
+        """
         super().__init__()
 
         self.in_dim = in_dim
@@ -81,26 +85,30 @@ class ProtoNet(nn.Module):
         # This will raise error if `in_dim` is too small, due to the maxpool layers
         # self.eval()
         self.n_feature = functools.reduce(operator.mul, list(self._network(torch.rand(1, *in_dim)).shape))
+        self._has_cuda = torch.cuda.is_available()
+        self.use_cuda = self._has_cuda and use_cuda
 
-#         _pre_classifier = [
-#             nn.Linear(nf, self.n_feature),
-#             nn.ReLU(inplace=True),
-# #             nn.Linear(2000, 1000),
-# #             nn.ReLU(inplace=True),
-#         ]
-
-#         self._network = nn.Sequential(
-#             *(_pre_network + _pre_classifier)
-#         )
+        if self.use_cuda:
+            self.cuda()
 
     def forward(self, x):
-        try:
-            return self._network(x)
-        except TypeError:
-            return self._network(torch.Tensor(x))
+        X = Tensor(x)
+        return self._network(X.cuda() if self.use_cuda else X)
 
     @staticmethod
-    def loss_acc(Q, S):
+    def loss_acc(Q:Tensor, S:Tensor):
+        """Loss function and accuracy.
+
+        Args
+        ----
+        Q: input feature tensor of query, of dimension (n_query*n_way, n_feature)
+        S: input feature tensor of support centroid, of dimension (n_way, n_feature)
+
+        Returns
+        -------
+        loss, acc: tensors of the loss function and the accuracy.
+        """
+
         n_way = S.shape[0]
         q_shot = Q.shape[0] // n_way
 
@@ -110,8 +118,13 @@ class ProtoNet(nn.Module):
         # Yt = np.tile(np.arange(n_way)[:,None], (1,q_shot))  # target labels
         _, Yh = L.max(-1)
         Yt = torch.arange(n_way)[:,None].expand(-1, q_shot)  # target labels
-        acc_val = torch.eq(Yh, Yt).float().mean()
+
+        if Q.is_cuda():
+            acc_val = torch.eq(Yh.cuda(), Yt.cuda()).float().mean()
+        else:
+            acc_val = torch.eq(Yh, Yt).float().mean()
 
         return loss_val, acc_val
+
 
 __all__ = ['ProtoNet']
