@@ -1,0 +1,154 @@
+"""Prototypical Networks.
+
+Reference:
+- Prototypical networks for few-shot learning, Snell et al 2017
+"""
+import numpy as np
+import tensorflow as tf
+from tensorflow import keras, nn
+from tensorflow.keras import layers
+
+# from keras.layers import Input, Conv2D, Lambda, Dense, Flatten, MaxPooling2D
+# from keras.models import Model, Sequential
+# from keras import backend
+# # from keras.regularizers import l2
+# from keras.optimizers import SGD,Adam
+# from keras.losses import binary_crossentropy
+
+
+_DATA_FORMAT = 'channels_last'
+_NORM_AXIS = -1  # 1 for 'channels_first'
+
+class ProtoNet(keras.Model):
+    # _default_parameters = {
+    #     'conv': {'kernel_size': 3, 'padding':'same', 'activation':None},
+    #     'norm': {'axis':1, 'momentum':0.5},
+    #     'pool': {'pool_size': 2},
+    #     'flat': {},
+    #     'n_conv_block': 4,  # number of convolution blocks
+    #     'hid_channels': 64,  # number of channels in the hidden layers
+    # }
+    _default_parameters = {
+        'conv': {'kernel_size': 3, 'padding':'same', 'data_format':_DATA_FORMAT, 'activation':None},
+        'norm': {'axis':_NORM_AXIS}, #, 'momentum':0.5},
+        'pool': {'pool_size': 2, 'data_format':_DATA_FORMAT},
+        'flat': {'data_format':_DATA_FORMAT},
+        'n_conv_block': 4,  # number of convolution blocks
+        'hid_channels': 64,  # number of channels in the hidden layers
+    }
+
+    @classmethod
+    def conv_block(cls, n_channels:int):
+        '''A basic convolution block.
+
+        The parameters here follow the original paper.
+        '''
+        return keras.Sequential([
+            layers.Conv2D(n_channels, **cls._default_parameters['conv']),
+            layers.BatchNormalization(**cls._default_parameters['norm']),
+            layers.ReLU(),
+            layers.MaxPooling2D(**cls._default_parameters['pool'])
+        ])
+
+    def __init__(self, in_dim:tuple, n_way:int, k_shot:int, *, use_cuda=False):
+        """
+        Args
+        ----
+        in_dim: dimension of the input images (height, width, channel).
+        """
+        super().__init__()
+
+        self.in_dim = in_dim
+        self.n_way = n_way
+        self.k_shot = k_shot
+
+        hc = self._default_parameters['hid_channels']
+
+        # # encoder
+        # self.input_support = Input(in_dim, name='input_support')
+        # self.input_query = Input(in_dim, name='input_query')
+
+        # use _network.layers[n] to access a sublayer
+        self._network = keras.Sequential([
+            layers.InputLayer(in_dim),
+            *[self.conv_block(hc) for _ in range(self._default_parameters['n_conv_block'])],
+            layers.Flatten(**self._default_parameters['flat']),
+        ])
+
+    @staticmethod
+    def loss_acc(Q, S):
+        """Loss function and accuracy.
+
+        Args
+        ----
+        Q: input feature tensor of query, of dimension (n_query*n_way, n_feature)
+        S: input feature tensor of support centroid, of dimension (n_way, n_feature)
+
+        Returns
+        -------
+        loss, acc: tensors of the loss function and the accuracy.
+        """
+
+        n_way = S.shape[0]
+        q_shot = Q.shape[0] // n_way
+
+        X = nn.log_softmax(tf.reduce_sum((Q[:,None,:]-S[None,:,:])**2, axis=-1), axis=-1)
+        L = tf.reshape(X, (n_way,q_shot,-1))
+        loss_val = -tf.reduce_mean(tf.stack([L[n,:,n] for n in range(n_way)]))
+
+        # Yt = tf.tile(tf.range(n_way)[:,None], (1, q_shot))  # target labels
+        # Yh = tf.argmax(L, axis=-1)
+        # acc_val = tf.reduce_mean(tf.equal(Yh, Yt).astype(float))
+
+        Yt = np.tile(np.arange(n_way)[:,None], (1,q_shot))  # target labels
+        Yh = np.argmax(L, axis=-1)
+        acc_val = np.mean(Yh==Yt)
+
+        return loss_val, acc_val
+
+    def call(self, inputs):
+        """
+        Args
+        ----
+        inputs: a list [query, support]. Both have the dimension (n_way, ?, channel, height, width)
+        """
+        # assert len(inputs)==2
+        query, support = inputs
+
+        # print(query.shape, support.shape)
+        print(inputs)
+
+        xs = self._network(tf.reshape(support, (-1, *support.shape[2:])))
+        S = tf.reduce_mean(tf.reshape(xs, (*support.shape[:2], -1)), axis=1)
+
+        Q = self._network(tf.reshape(query, (-1, *query.shape[2:])))
+        # Q = tf.reshape(xq, (*query.shape[:2], -1))
+
+        return tf.reduce_sum((Q[:,None,:]-S[None,:,:])**2, axis=-1)
+
+        # return self.loss_acc(Q, S)
+
+    @staticmethod
+    def get_model(in_dim:tuple, n_way:int, k_shot:int):
+        hc = ProtoNet._default_parameters['hid_channels']
+        support = layers.Input((None, *in_dim))
+        # print(support.shape)
+        query = layers.Input((None, *in_dim))
+        # query = layers.Input(in_dim)
+
+        _network = keras.Sequential([
+            *[ProtoNet.conv_block(hc) for _ in range(ProtoNet._default_parameters['n_conv_block'])],
+            layers.Flatten(**ProtoNet._default_parameters['flat']),
+        ])
+
+        xs = _network(tf.reshape(support, (-1, *support.shape[2:])))
+        S = tf.reduce_mean(tf.reshape(xs, (n_way, k_shot, -1)), axis=1)
+
+        Q = _network(tf.reshape(query, (-1, *query.shape[2:])))
+        # Q = tf.reshape(xq, (*query.shape[:2], -1))
+
+        # output = tf.reduce_mean((Q[:,None,:]-S[None,:,:])**2, axis=-1)
+        dist = tf.reduce_sum((Q[:,None,:]-S[None,:,:])**2, axis=-1)
+        output = tf.nn.softmax(-dist, axis=-1)
+
+        return keras.Model(inputs=[query, support], outputs=output, name='ProtoNet')

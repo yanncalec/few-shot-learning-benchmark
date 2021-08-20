@@ -70,6 +70,9 @@ class ProtoNet(nn.Module):
         super().__init__()
 
         self.in_dim = in_dim
+        # self.n_way = n_way
+        # self.k_shot = k_shot
+
         hc = self._default_parameters['hid_channels']
         oc = self._default_parameters['out_channels']
 
@@ -88,6 +91,8 @@ class ProtoNet(nn.Module):
         self._has_cuda = torch.cuda.is_available()
         self.use_cuda = self._has_cuda and use_cuda
 
+        # self.loss = nn.CrossEntropyLoss()
+
         if self.use_cuda:
             self.cuda()
 
@@ -95,34 +100,48 @@ class ProtoNet(nn.Module):
         X = Tensor(x)
         return self._network(X.cuda() if self.use_cuda else X)
 
-    @staticmethod
-    def loss_acc(Q:Tensor, S:Tensor):
+    def loss_acc(self, xq, xs, yt:list=None):
         """Loss function and accuracy.
 
         Args
         ----
-        Q: input feature tensor of query, of dimension (n_query*n_way, n_feature)
-        S: input feature tensor of support centroid, of dimension (n_way, n_feature)
+        xq: query data, of dimension (n_way, q_shot, ...)
+        xs: support data, of dimension (n_way, k_shot, ...)
 
         Returns
         -------
         loss, acc: tensors of the loss function and the accuracy.
         """
+        assert xs.shape[0] == xq.shape[0]
 
-        n_way = S.shape[0]
-        q_shot = Q.shape[0] // n_way
+        n_way = xs.shape[0]
+        q_shot = xq.shape[1]
 
-        X = F.log_softmax(((Q[:,None,:]-S[None,:,:])**2).sum(-1), -1)
-        L = X.reshape((n_way,q_shot,-1))
-        loss_val = -torch.stack([L[n,:,n] for n in range(n_way)]).mean()
-        # Yt = np.tile(np.arange(n_way)[:,None], (1,q_shot))  # target labels
-        _, Yh = L.max(-1)
-        Yt = torch.arange(n_way)[:,None].expand(-1, q_shot)  # target labels
+        # compute prototype of features for support
+        S = torch.stack([self.forward(x).mean(axis=0) for x in xs])
+        # compute features for query
+        Q = self.forward(xq.reshape((-1, *xq.shape[2:])))
 
-        if Q.is_cuda():
-            acc_val = torch.eq(Yh.cuda(), Yt.cuda()).float().mean()
+        # squared euclidean distance
+        dist = ((Q[:,None,:]-S[None,:,:])**2).sum(axis=-1)
+        # Gotcha! must use softmax(-d) but not softmax(d)!
+        L = F.log_softmax(-dist, -1).reshape((n_way,q_shot,-1))
+        yp = L.argmax(axis=-1).flatten()  # predicted labels
+
+        # target labels
+        if yt is None:
+            yt = torch.arange(n_way)[:,None].expand(-1, q_shot).flatten()
+            # yt = np.tile(np.arange(n_way)[:,None], (1,q_shot))
         else:
-            acc_val = torch.eq(Yh, Yt).float().mean()
+            yt = torch.tensor(yt)
+
+        # loss_val = -torch.stack([L[n,:,n] for n in range(n_way)]).mean()
+        loss_val = F.cross_entropy(-dist, yt)  # yt must be 1d
+
+        if Q.is_cuda:
+            acc_val = torch.eq(yp.cuda(), yt.cuda()).float().mean()
+        else:
+            acc_val = torch.eq(yp, yt).float().mean()
 
         return loss_val, acc_val
 
